@@ -1,0 +1,12 @@
+
+FROM alpine:3.7
+
+LABEL org.opencontainers.image.source=https://github.com/enescakir/large-image-benchmark
+
+COPY Dockerfile.registry ./
+
+COPY test1.txt ./
+RUN dd if=/dev/urandom of=test1.txt bs=1G count=4
+
+COPY test2.txt ./
+RUN dd if=/dev/urandom of=test2.txt bs=1G count=2

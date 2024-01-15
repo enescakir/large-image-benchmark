@@ -1,0 +1,112 @@
+name: Registry Push/Pull
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  push:
+    name: push ${{ matrix.registry }} ${{ matrix.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest, ubicloud]
+        registry: [docker.io, ghcr.io]
+        include:
+          - registry: docker.io
+            image: enescakir/benchmarking 
+            username_key: DOCKERHUB_USERNAME
+            password_key: DOCKERHUB_TOKEN
+          - registry: ghcr.io
+            image: ghcr.io/enescakir/benchmarking 
+            username_key: GHCR_USERNAME
+            password_key: GITHUB_TOKEN
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: type=raw,value=large-image-${{ matrix.runs-on }}
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ matrix.registry }}
+          username: ${{ secrets[matrix.username_key] }}
+          password: ${{ secrets[matrix.password_key] }}
+
+      - name: Free up space
+        run: |
+          docker system prune -f
+          docker builder prune -f
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/share/dotnet
+
+      - name: Invalidate push cache
+        run: touch test1.txt
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.registry
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags  }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: List docker images
+        run: docker images
+  
+      - name: Push Docker image
+        run: docker push ${{ matrix.image }}:large-image-${{ matrix.runs-on }}
+    
+
+  pull:
+    needs: push
+    name: pull ${{ matrix.registry }} ${{ matrix.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest, ubicloud]
+        registry: [docker.io, ghcr.io]
+        include:
+          - registry: docker.io
+            image: enescakir/benchmarking 
+            username_key: DOCKERHUB_USERNAME
+            password_key: DOCKERHUB_TOKEN
+          - registry: ghcr.io
+            image: ghcr.io/enescakir/benchmarking 
+            username_key: GHCR_USERNAME
+            password_key: GITHUB_TOKEN
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ matrix.registry }}
+          username: ${{ secrets[matrix.username_key] }}
+          password: ${{ secrets[matrix.password_key] }}
+
+      - name: Pull Docker image
+        run: docker pull ${{ matrix.image }}:large-image-${{ matrix.runs-on }}

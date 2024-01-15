@@ -1,0 +1,145 @@
+name: Cache
+
+on:
+  workflow_dispatch:
+    # inputs:
+    #   invalidate_cache_1:
+    #     default: false
+    #     type: boolean
+
+    #   invalidate_cache_2:
+    #     default: true
+    #     type: boolean
+
+jobs:
+  upload-cache:
+    name: upload ${{ matrix.provider }} ${{ matrix.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest, ubicloud]
+        provider: [gha, minio]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: enescakir/benchmarking
+          tags: type=raw,value=large-image-${{ matrix.runs-on }}
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Free up space
+        run: |
+          docker system prune -f
+          docker builder prune -f
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/share/dotnet
+    
+      - name: Build and upload cache to GHA
+        if: matrix.provider == 'gha'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.cache
+          platforms: linux/amd64
+          push: false
+          # cache-from: type=gha,scope=ubicloud-${{ matrix.runs-on }}
+          cache-to: type=gha,mode=max,scope=ubicloud-${{ matrix.runs-on }}
+          tags: ${{ steps.meta.outputs.tags  }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Build and upload cache to MinIO
+        if: matrix.provider == 'minio'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.cache
+          platforms: linux/amd64
+          push: false
+          # cache-from: type=s3,region=us-east-1,bucket=ubicloud-cache,name=ubicloud-${{ matrix.runs-on }},use_path_style=true,endpoint_url=${{ secrets.MINIO_ENDPOINT }},access_key_id=${{ secrets.MINIO_USERNAME }},secret_access_key=${{ secrets.MINIO_TOKEN }}
+          cache-to: type=s3,region=us-east-1,bucket=ubicloud-cache,name=ubicloud-${{ matrix.runs-on }},mode=max,use_path_style=true,endpoint_url=${{ secrets.MINIO_ENDPOINT }},access_key_id=${{ secrets.MINIO_USERNAME }},secret_access_key=${{ secrets.MINIO_TOKEN }}
+          tags: ${{ steps.meta.outputs.tags  }}
+          labels: ${{ steps.meta.outputs.labels }}
+  
+  download-cache:
+    name: download ${{ matrix.provider }} ${{ matrix.runs-on }}
+    needs: upload-cache
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest, ubicloud]
+        provider: [gha, minio]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: enescakir/benchmarking
+          tags: type=raw,value=large-image-${{ matrix.runs-on }}
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Free up space
+        run: |
+          docker system prune -f
+          docker builder prune -f
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/share/dotnet
+  
+      - name: Download cache to GHA
+        if: matrix.provider == 'gha'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.cache
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=ubicloud-${{ matrix.runs-on }}
+          # cache-to: type=gha,mode=max,scope=ubicloud-${{ matrix.runs-on }}
+          tags: ${{ steps.meta.outputs.tags  }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Download cache to MinIO
+        if: matrix.provider == 'minio'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.cache
+          platforms: linux/amd64
+          push: false
+          cache-from: type=s3,region=us-east-1,bucket=ubicloud-cache,name=ubicloud-${{ matrix.runs-on }},use_path_style=true,endpoint_url=${{ secrets.MINIO_ENDPOINT }},access_key_id=${{ secrets.MINIO_USERNAME }},secret_access_key=${{ secrets.MINIO_TOKEN }}
+          # cache-to: type=s3,region=us-east-1,bucket=ubicloud-cache,name=ubicloud-${{ matrix.runs-on }},mode=max,use_path_style=true,endpoint_url=${{ secrets.MINIO_ENDPOINT }},access_key_id=${{ secrets.MINIO_USERNAME }},secret_access_key=${{ secrets.MINIO_TOKEN }}
+          tags: ${{ steps.meta.outputs.tags  }}
+          labels: ${{ steps.meta.outputs.labels }}
+  
